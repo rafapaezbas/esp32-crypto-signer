@@ -4,13 +4,12 @@
 #include "nvs_flash.h"
 #include "nvs.h"
 
-static const char *NVS_PK_KEY = "NVS_PK_KEY_B";
-
-
-
+static const char *NVS_PK_KEY = "NVS_PK_KEY";
+static const char *NVS_SK_KEY = "NVS_SK_KEY";
 
 unsigned char pk[crypto_sign_PUBLICKEYBYTES];
 unsigned char sk[crypto_sign_SECRETKEYBYTES];
+
 char persisted_pk[crypto_sign_PUBLICKEYBYTES + 1]; // last byte is null since value must be a zero terminated string
 char persisted_sk[crypto_sign_SECRETKEYBYTES + 1];
 
@@ -39,6 +38,15 @@ esp_err_t read_pk () {
 	return err;
 }
 
+esp_err_t read_sk () {
+	nvs_handle_t my_handle;
+	esp_err_t err = nvs_open(NVS_SK_KEY, NVS_READWRITE, &my_handle);
+	size_t size = crypto_sign_SECRETKEYBYTES + 1; 
+	err = nvs_get_str(my_handle, NVS_SK_KEY, persisted_sk, &size);
+	nvs_close(my_handle);
+	return err;
+}
+
 void persist_pk () {
 	nvs_handle_t my_handle;
 	esp_err_t err = nvs_open(NVS_PK_KEY, NVS_READWRITE, &my_handle);
@@ -46,6 +54,16 @@ void persist_pk () {
 	persisted_pk[32] = '\0'; // convert to zero terminated string
 	err = nvs_set_str(my_handle, NVS_PK_KEY, persisted_pk);
         printf((err != ESP_OK) ? "Pk persist failed.\n" : "Pk persist done.\n");
+	nvs_close(my_handle);
+}
+
+void persist_sk () {
+	nvs_handle_t my_handle;
+	esp_err_t err = nvs_open(NVS_SK_KEY, NVS_READWRITE, &my_handle);
+	strncpy(persisted_sk, (char *) sk,  32);
+	persisted_sk[32] = '\0'; // convert to zero terminated string
+	err = nvs_set_str(my_handle, NVS_SK_KEY, persisted_sk);
+        printf((err != ESP_OK) ? "Sk persist failed.\n" : "Sk persist done.\n");
 	nvs_close(my_handle);
 }
 
@@ -62,15 +80,14 @@ void app_main (void) {
 		printf("Public key not found, generating and persisting new key pair...\n");
 		crypto_sign_keypair(pk, sk);
 		persist_pk();
+		persist_sk();
 	} else if (err == ESP_OK) {
+		read_sk(); // assumes that if public key was found, private key is also generated
 		printf("Public key found...\n");
 	}
 
 	printf("Public key: ");
 	print_key(persisted_pk);
-
-	// crypto_sign_keypair(pk, sk);
-	// print_pk();
-
+	print_key(persisted_sk);
 }
 
