@@ -6,7 +6,7 @@ Esp32 Crypto Signer is a public key signature esp32 firmware base on the framewo
 
 - In order to flash this to an esp32 microcontroller first thing to do is the setup of esp-idf. [Check this step by step tutorial](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/get-started/linux-macos-setup.html).
 - Check also the documentation for [start a new project](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-guides/build-system.html#start-a-new-project).
-- Install the [libsodium component] (https://components.espressif.com/component/espressif/libsodium)
+- Install the [libsodium component](https://components.espressif.com/component/espressif/libsodium)
 
 ``` bash
 idf.py add-dependency espressif/libsodium==1.0.20
