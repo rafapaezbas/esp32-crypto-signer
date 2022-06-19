@@ -29,7 +29,7 @@ echo -n "message" > /dev/ttyUSB0
 # e738d2b53926ff6e19bc2d69366b25f3f49ca5b4869c28a806274de6f224864
 ```
 
-# Key pair
+## Key pair
 
 The esp32 microcontroller has a memory partition for [non volatile storage](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/storage/nvs_flash.html?highlight=nvs). This works as a key valye store. 
 On every run, the program checks if a key pair has been stored in the keys __NVS_PK_KEY__ and __NVS_SK_KEY__, in case that the register is empty, it generates a new key pair and stores it. This means that under normal conditions, the key pair is genrated only once on the first run after the flash.
