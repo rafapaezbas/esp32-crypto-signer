@@ -3,6 +3,16 @@
 #include <string.h>
 #include "nvs_flash.h"
 #include "nvs.h"
+#include "driver/uart.h"
+
+#define TXD 1
+#define RXD 3
+#define UART_PORT_NUM 0
+#define ECHO_UART_BAUD_RATE 115200
+#define REQUEST_TASK_STACK_SIZE 8192
+#define RTS (UART_PIN_NO_CHANGE)
+#define CTS (UART_PIN_NO_CHANGE)
+#define BUF_SIZE (4096)
 
 static const char *NVS_PK_KEY = "NVS_PK_KEY";
 static const char *NVS_SK_KEY = "NVS_SK_KEY";
@@ -13,7 +23,7 @@ unsigned char sk[crypto_sign_SECRETKEYBYTES];
 char persisted_pk[crypto_sign_PUBLICKEYBYTES + 1]; // last byte is null since value must be a zero terminated string
 char persisted_sk[crypto_sign_SECRETKEYBYTES + 1];
 
-void print_key (char *key) {
+void print_hex (char *key) {
 	for (int i = 0; i < 32; ++i) {
 		printf("%x", key[i]);
 	}
@@ -53,41 +63,72 @@ void persist_pk () {
 	strncpy(persisted_pk, (char *) pk,  32);
 	persisted_pk[32] = '\0'; // convert to zero terminated string
 	err = nvs_set_str(my_handle, NVS_PK_KEY, persisted_pk);
-        printf((err != ESP_OK) ? "Pk persist failed.\n" : "Pk persist done.\n");
+	printf((err != ESP_OK) ? "Pk persist failed.\n" : "Pk persist done.\n");
 	nvs_close(my_handle);
 }
 
 void persist_sk () {
 	nvs_handle_t my_handle;
-	esp_err_t err = nvs_open(NVS_SK_KEY, NVS_READWRITE, &my_handle);
+	nvs_open(NVS_SK_KEY, NVS_READWRITE, &my_handle);
 	strncpy(persisted_sk, (char *) sk,  32);
 	persisted_sk[32] = '\0'; // convert to zero terminated string
-	err = nvs_set_str(my_handle, NVS_SK_KEY, persisted_sk);
-        printf((err != ESP_OK) ? "Sk persist failed.\n" : "Sk persist done.\n");
+	nvs_set_str(my_handle, NVS_SK_KEY, persisted_sk);
 	nvs_close(my_handle);
 }
 
-void app_main (void) {
-	// Initialize sodium lib
-	if (sodium_init() < 0) {
-		printf("Sodium couldn't be initialized!\n");
-	}
+void sign_message (unsigned char* message, unsigned char* signed_message, unsigned long long message_length) {
+	unsigned long long signed_message_length;
+	crypto_sign(signed_message, &signed_message_length, message, message_length, sk);
+}
 
+static void request_task (void *arg) {
+	uart_config_t uart_config = {
+		.baud_rate = ECHO_UART_BAUD_RATE,
+		.data_bits = UART_DATA_8_BITS,
+		.parity    = UART_PARITY_DISABLE,
+		.stop_bits = UART_STOP_BITS_1,
+		.flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+		.source_clk = UART_SCLK_DEFAULT,
+	};
+
+	int intr_alloc_flags = 0;
+	ESP_ERROR_CHECK(uart_driver_install(UART_PORT_NUM, BUF_SIZE * 2, 0, 0, NULL, intr_alloc_flags));
+	ESP_ERROR_CHECK(uart_param_config(UART_PORT_NUM, &uart_config));
+	ESP_ERROR_CHECK(uart_set_pin(UART_PORT_NUM, TXD, RXD, RTS, CTS));
+
+	// Configure a temporary buffer for the incoming data
+	uint8_t *data = (uint8_t *) malloc(BUF_SIZE);
+
+	while (1) {
+		int length = uart_read_bytes(UART_PORT_NUM, data, (BUF_SIZE - 1), 20 / portTICK_PERIOD_MS);
+		uart_write_bytes(UART_PORT_NUM, (const char *) data, length);
+		if (length) {
+			if(strncmp((char *) data, "__public_key__", 14) == 0) { // compare first 14 chars of data
+				print_hex(persisted_pk);
+			} else {
+				unsigned char signed_message [crypto_sign_BYTES + length];
+				sign_message((unsigned char *) data, signed_message, length);
+				print_hex((char *) signed_message);
+			}
+		}
+	}
+}
+
+void app_main (void) {
+	sodium_init();
 	initialize_nvs();
 	esp_err_t err = read_pk();
 
 	if (err == ESP_ERR_NVS_NOT_FOUND) {
-		printf("Public key not found, generating and persisting new key pair...\n");
 		crypto_sign_keypair(pk, sk);
 		persist_pk();
 		persist_sk();
 	} else if (err == ESP_OK) {
 		read_sk(); // assumes that if public key was found, private key is also generated
-		printf("Public key found...\n");
+		strncpy((char *) sk, persisted_sk,  32);
+		strncpy((char *) pk, persisted_pk,  32);
 	}
 
-	printf("Public key: ");
-	print_key(persisted_pk);
-	print_key(persisted_sk);
+	xTaskCreate(request_task, "request_task", REQUEST_TASK_STACK_SIZE, NULL, 10, NULL);
 }
 
