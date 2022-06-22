@@ -27,7 +27,7 @@ void print_hex (char *key) {
 	for (int i = 0; i < 32; ++i) {
 		printf("%x", key[i]);
 	}
-	printf("\n");
+	fflush(stdout);
 }
 
 void initialize_nvs () {
@@ -76,9 +76,8 @@ void persist_sk () {
 	nvs_close(my_handle);
 }
 
-void sign_message (unsigned char* message, unsigned char* signed_message, unsigned long long message_length) {
-	unsigned long long signed_message_length;
-	crypto_sign(signed_message, &signed_message_length, message, message_length, sk);
+void sign_message (unsigned char* message, unsigned char* signed_message, unsigned long long message_length, unsigned long long* signed_message_length) {
+	crypto_sign(signed_message, signed_message_length, message, message_length, sk);
 }
 
 static void request_task (void *arg) {
@@ -101,13 +100,13 @@ static void request_task (void *arg) {
 
 	while (1) {
 		int length = uart_read_bytes(UART_PORT_NUM, data, (BUF_SIZE - 1), 20 / portTICK_PERIOD_MS);
-		uart_write_bytes(UART_PORT_NUM, (const char *) data, length);
 		if (length) {
 			if(strncmp((char *) data, "__public_key__", 14) == 0) { // compare first 14 chars of data
 				print_hex(persisted_pk);
 			} else {
 				unsigned char signed_message [crypto_sign_BYTES + length];
-				sign_message((unsigned char *) data, signed_message, length);
+				unsigned long long signed_message_length;
+				sign_message((unsigned char *) data, signed_message, length, &signed_message_length);
 				print_hex((char *) signed_message);
 			}
 		}
