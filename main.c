@@ -15,7 +15,7 @@
 #define BUF_SIZE (1024)
 
 #define PK_HEADER_LEN 14
-#define SCALARMULT_HEADER_LEN 14
+#define DH_HEADER_LEN 6
 
 static const char *NVS_PK_KEY = "NVS_PK_KEY";
 static const char *NVS_SK_KEY = "NVS_SK_KEY";
@@ -97,15 +97,28 @@ static void request_task (void *arg) {
 		int length = uart_read_bytes(UART_PORT_NUM, data, (BUF_SIZE - 1), 20 / portTICK_PERIOD_MS);
 		if (length) {
 
-			if(strncmp((char *) data, "__public_key__", PK_HEADER_LEN) == 0) { // compare first (PK_HEADER_LEN) chars of data
+			if (strncmp((char *) data, "__public_key__", PK_HEADER_LEN) == 0) { // compare first (PK_HEADER_LEN) chars of data
 				uart_write_bytes(UART_PORT_NUM, (const char *) pk, 32);
-			}else if (strncmp((char *) data, "__scalarmult__", SCALARMULT_HEADER_LEN) == 0) {
-				unsigned char k [crypto_scalarmult_SCALARBYTES];
-				unsigned char output [crypto_scalarmult_SCALARBYTES];
+			} else if (strncmp((char *) data, "__dh__", DH_HEADER_LEN) == 0) {
 				unsigned char sub_sk[32];
-				strncpy((char *) k ,((char *) data) + SCALARMULT_HEADER_LEN, 32); // strncpy with offset of (SCALARMULT_HEADER_LER)
 				strncpy((char *) sub_sk, (char *) sk, 32);
-				crypto_scalarmult(output, sub_sk, pk);
+
+				unsigned char sub_sk_hash[64];
+				unsigned char short_sub_sk_hash[32];
+				crypto_hash_sha512(sub_sk_hash, sub_sk, 32);
+
+				// TODO fix
+				//sub_sk_hash[0] &= 248;
+				//sub_sk_hash[31] &= 127;
+				//sub_sk_hash[31] |= 64;
+
+				strncpy((char *) short_sub_sk_hash, ((char *) sub_sk_hash), 32);
+
+				unsigned char k [crypto_scalarmult_SCALARBYTES];
+				strncpy((char *) k, ((char *) data) + DH_HEADER_LEN, 32); // strncpy with offset of (SCALARMULT_HEADER_LER)
+
+				unsigned char output [crypto_scalarmult_SCALARBYTES];
+				crypto_scalarmult_ed25519(output, short_sub_sk_hash, k);
 				uart_write_bytes(UART_PORT_NUM, output, crypto_scalarmult_SCALARBYTES);
 			} else {
 				unsigned char signature [crypto_sign_BYTES];
