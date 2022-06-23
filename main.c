@@ -23,13 +23,6 @@ unsigned char sk[crypto_sign_SECRETKEYBYTES];
 char persisted_pk[crypto_sign_PUBLICKEYBYTES + 1]; // last byte is null since value must be a zero terminated string
 char persisted_sk[crypto_sign_SECRETKEYBYTES + 1];
 
-void print_hex (char *key) {
-	for (int i = 0; i < 32; ++i) {
-		printf("%x", key[i]);
-	}
-	fflush(stdout);
-}
-
 void initialize_nvs () {
 	esp_err_t err = nvs_flash_init();
 	if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
@@ -63,21 +56,20 @@ void persist_pk () {
 	strncpy(persisted_pk, (char *) pk,  32);
 	persisted_pk[32] = '\0'; // convert to zero terminated string
 	err = nvs_set_str(my_handle, NVS_PK_KEY, persisted_pk);
-	printf((err != ESP_OK) ? "Pk persist failed.\n" : "Pk persist done.\n");
 	nvs_close(my_handle);
 }
 
 void persist_sk () {
 	nvs_handle_t my_handle;
 	nvs_open(NVS_SK_KEY, NVS_READWRITE, &my_handle);
-	strncpy(persisted_sk, (char *) sk,  32);
-	persisted_sk[32] = '\0'; // convert to zero terminated string
+	strncpy(persisted_sk, (char *) sk,  64);
+	persisted_sk[64] = '\0'; // convert to zero terminated string
 	nvs_set_str(my_handle, NVS_SK_KEY, persisted_sk);
 	nvs_close(my_handle);
 }
 
-void sign_message (unsigned char* message, unsigned char* signed_message, unsigned long long message_length, unsigned long long* signed_message_length) {
-	crypto_sign(signed_message, signed_message_length, message, message_length, sk);
+void sign_message (unsigned char* message, unsigned char* signature, int message_length) {
+	crypto_sign_detached(signature, NULL, message, message_length, sk);
 }
 
 static void request_task (void *arg) {
@@ -101,13 +93,13 @@ static void request_task (void *arg) {
 	while (1) {
 		int length = uart_read_bytes(UART_PORT_NUM, data, (BUF_SIZE - 1), 20 / portTICK_PERIOD_MS);
 		if (length) {
+
 			if(strncmp((char *) data, "__public_key__", 14) == 0) { // compare first 14 chars of data
-				print_hex(persisted_pk);
+				uart_write_bytes(UART_PORT_NUM, (const char *) pk, 32);
 			} else {
-				unsigned char signed_message [crypto_sign_BYTES + length];
-				unsigned long long signed_message_length;
-				sign_message((unsigned char *) data, signed_message, length, &signed_message_length);
-				print_hex((char *) signed_message);
+				unsigned char signature [crypto_sign_BYTES];
+				sign_message((unsigned char *) data, signature, length);
+				uart_write_bytes(UART_PORT_NUM, signature, 64);
 			}
 		}
 	}
@@ -124,7 +116,7 @@ void app_main (void) {
 		persist_sk();
 	} else if (err == ESP_OK) {
 		read_sk(); // assumes that if public key was found, private key is also generated
-		strncpy((char *) sk, persisted_sk,  32);
+		strncpy((char *) sk, persisted_sk,  64);
 		strncpy((char *) pk, persisted_pk,  32);
 	}
 
