@@ -9,10 +9,13 @@
 #define RXD 3
 #define UART_PORT_NUM 0
 #define ECHO_UART_BAUD_RATE 115200
-#define REQUEST_TASK_STACK_SIZE 8192
+#define REQUEST_TASK_STACK_SIZE (8192)
 #define RTS (UART_PIN_NO_CHANGE)
 #define CTS (UART_PIN_NO_CHANGE)
-#define BUF_SIZE (4096)
+#define BUF_SIZE (1024)
+
+#define PK_HEADER_LEN 14
+#define SCALARMULT_HEADER_LEN 14
 
 static const char *NVS_PK_KEY = "NVS_PK_KEY";
 static const char *NVS_SK_KEY = "NVS_SK_KEY";
@@ -94,8 +97,16 @@ static void request_task (void *arg) {
 		int length = uart_read_bytes(UART_PORT_NUM, data, (BUF_SIZE - 1), 20 / portTICK_PERIOD_MS);
 		if (length) {
 
-			if(strncmp((char *) data, "__public_key__", 14) == 0) { // compare first 14 chars of data
+			if(strncmp((char *) data, "__public_key__", PK_HEADER_LEN) == 0) { // compare first (PK_HEADER_LEN) chars of data
 				uart_write_bytes(UART_PORT_NUM, (const char *) pk, 32);
+			}else if (strncmp((char *) data, "__scalarmult__", SCALARMULT_HEADER_LEN) == 0) {
+				unsigned char k [crypto_scalarmult_SCALARBYTES];
+				unsigned char output [crypto_scalarmult_SCALARBYTES];
+				unsigned char sub_sk[32];
+				strncpy((char *) k ,((char *) data) + SCALARMULT_HEADER_LEN, 32); // strncpy with offset of (SCALARMULT_HEADER_LER)
+				strncpy((char *) sub_sk, (char *) sk, 32);
+				crypto_scalarmult(output, sub_sk, pk);
+				uart_write_bytes(UART_PORT_NUM, output, crypto_scalarmult_SCALARBYTES);
 			} else {
 				unsigned char signature [crypto_sign_BYTES];
 				sign_message((unsigned char *) data, signature, length);
